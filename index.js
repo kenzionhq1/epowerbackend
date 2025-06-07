@@ -7,7 +7,7 @@ const app = express();
 
 // CORS FIX
 app.use(cors({
-  origin: "https://e-power-beryl.vercel.app",
+  origin: "https://epowerbackend.onrender.com",
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
