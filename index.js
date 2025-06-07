@@ -8,12 +8,24 @@ const app = express();
 // CORS FIX
 
 
+const allowedOrigins = [
+  "https://e-power-beryl.vercel.app",
+  "http://localhost:5000" ,
+  "https://e-power-beryl.vercel.app/signup.html",
+  // Add other allowed origins here
+];
+
 app.use(cors({
-  origin: "https://e-power-beryl.vercel.app/signup.html", // ❌ Remove trailing slash
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
-
 // Middleware
 
 app.use(cors());
