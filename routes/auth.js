@@ -8,97 +8,113 @@ const User = require("../models/User");
 const JWT_SECRET = process.env.JWT_SECRET;
 const BASE_URL = process.env.BASE_URL; // e.g. https://yourdomain.com
 
-// Setup Brevo Transport
-const transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
-  port: 587,
-  auth: {
-    user: process.env.BREVO_USER,
-    pass: process.env.BREVO_PASS
-  }
-});
+const Brevo = require('@getbrevo/brevo');
+const defaultClient = Brevo.ApiClient.instance;
 
-// 📩 Signup Endpoint
+const apiKey = defaultClient.authentications['api-key'];
+apiKey.apiKey = process.env.BREVO_API_KEY; // from .env
+
+const generateCode = () => Math.floor(1000 + Math.random() * 9000).toString(); // 4-digit
+
+const sendBrevoVerification = async (email, username, code) => {
+  const apiInstance = new Brevo.TransactionalEmailsApi();
+  const sendSmtpEmail = {
+    to: [{ email }],
+    sender: { name: "e-Power", email: process.env.EMAIL_USER },
+    subject: "Verify your e-Power account",
+    htmlContent: `
+      <h3>Hello ${username},</h3>
+      <p>Your verification code is <strong>${code}</strong>. It expires in 5 minutes.</p>
+    `
+  };
+  await apiInstance.sendTransacEmail(sendSmtpEmail);
+};
+
 router.post("/signup", async (req, res) => {
   const { username, email, password } = req.body;
+  if (!username || !email || !password) return res.status(400).json({ message: "All fields are required" });
 
-  try {
-    if (!username || !email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
+  const existingUser = await User.findOne({ email });
 
-    const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ message: "Email already registered" });
-
-    const hashed = await bcrypt.hash(password, 10);
-    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "1d" });
-
-    const user = new User({
-      username,
-      email,
-      password: hashed,
-      verified: false,
-      verificationToken: token
-    });
-
-    await user.save();
-
-    // 📧 Send verification email
-    const verificationUrl = `${BASE_URL}/api/auth/verify-email?token=${token}`;
-    await transporter.sendMail({
-      from: `"e-Power" <${process.env.BREVO_USER}>`,
-      to: email,
-      subject: "Please verify your e-Power account",
-      html: `
-        <h3>Hello ${username},</h3>
-        <p>Thank you for registering on e-Power. Please click below to verify your email:</p>
-        <p><a href="${verificationUrl}" style="padding:10px 15px; background:#2563eb; color:white; text-decoration:none;">Verify Email</a></p>
-        <p>This link will expire in 24 hours.</p>
-      `
-    });
-
-    res.status(201).json({ message: "Signup successful. Check your email to verify your account." });
-
-  } catch (err) {
-    console.error("Signup error:", err.message);
-    res.status(500).json({ message: "Signup failed" });
+  if (existingUser && existingUser.verified) {
+    return res.status(400).json({ message: "Email already verified and in use" });
   }
+
+  const hashed = await bcrypt.hash(password, 10);
+  const code = generateCode();
+
+  if (existingUser && !existingUser.verified) {
+    // Update unverified user
+    existingUser.username = username;
+    existingUser.password = hashed;
+    existingUser.verificationCode = code;
+    existingUser.codeExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    await existingUser.save();
+    await sendBrevoVerification(email, username, code);
+    return res.status(200).json({ message: "Verification code resent. Please check your email." });
+  }
+
+  // New user
+  const user = new User({
+    username,
+    email,
+    password: hashed,
+    verified: false,
+    verificationCode: code,
+    codeExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
+  });
+
+  await user.save();
+  await sendBrevoVerification(email, username, code);
+
+  res.status(201).json({ message: "Signup successful. Please check your email for the verification code." });
 });
 
-// ✅ Verify Email Endpoint
-router.get("/verify-email", async (req, res) => {
-  const { token } = req.query;
+router.post("/verify-code", async (req, res) => {
+  const { email, code } = req.body;
 
-  try {
-    if (!token) return res.status(400).send("Verification token missing.");
+  const user = await User.findOne({ email });
+  if (!user) return res.status(404).json({ message: "User not found" });
+  if (user.verified) return res.status(200).json({ message: "Already verified" });
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findOne({ email: decoded.email });
-
-    if (!user) return res.status(404).send("User not found.");
-    if (user.verified) return res.send("✅ Your email is already verified.");
-
-    user.verified = true;
-    user.verificationToken = undefined;
-    await user.save();
-
-    res.send(`
-      <h2>✅ Email Verified!</h2>
-      <p>Your account has been verified. You can now <a href="/signin.html">sign in</a>.</p>
-    `);
-  } catch (err) {
-    console.error("Verification error:", err.message);
-    res.status(400).send("Invalid or expired verification link.");
+  if (user.verificationCode !== code) {
+    return res.status(400).json({ message: "Invalid verification code" });
   }
+
+  if (user.codeExpiresAt < new Date()) {
+    return res.status(400).json({ message: "Code has expired" });
+  }
+
+  user.verified = true;
+  user.verificationCode = undefined;
+  user.codeExpiresAt = undefined;
+  await user.save();
+
+  res.status(200).json({ message: "Email verified successfully" });
 });
 
 
 
+
+router.post("/resend-code", async (req, res) => {
+  const { email } = req.body;
+
+  const user = await User.findOne({ email });
+  if (!user || user.verified) return res.status(400).json({ message: "User not found or already verified" });
+
+  const code = generateCode();
+  user.verificationCode = code;
+  user.codeExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  await user.save();
+
+  await sendBrevoVerification(email, user.username, code);
+  res.status(200).json({ message: "Verification code resent" });
+});
 
 
 
 // Signin
-// SIGN IN
+// Sign In
 router.post("/signin", async (req, res) => {
   const { identifier, password } = req.body;
 
@@ -107,22 +123,27 @@ router.post("/signin", async (req, res) => {
       $or: [{ email: identifier }, { username: identifier }]
     });
 
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ message: "Invalid credentials" });
-
-    // Check if email is verified
     if (!user.verified) {
-      return res.status(403).json({ message: "Please verify your email before signing in." });
+      return res.status(403).json({ message: "Please verify your email to continue" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "1d"
     });
+
     res.status(200).json({
       token,
       user: {
+        id: user._id,
         username: user.username,
         email: user.email,
         balance: user.balance
@@ -133,6 +154,7 @@ router.post("/signin", async (req, res) => {
     res.status(500).json({ message: "Signin failed" });
   }
 });
+
 
 
 module.exports = router;
