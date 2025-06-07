@@ -7,7 +7,7 @@ const app = express();
 
 // CORS FIX
 
-
+app.options("*", cors());
 const allowedOrigins = [
   "https://e-power-beryl.vercel.app",
   "http://localhost:5000" ,
