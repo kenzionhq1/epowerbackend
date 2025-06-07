@@ -6,9 +6,11 @@ const BASE_URL = process.env.BASE_URL;
 const app = express();
 
 // CORS FIX
+
+
 app.use(cors({
-  origin: "https://e-power-beryl.vercel.app/",
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  origin: "https://e-power-beryl.vercel.app", // ❌ Remove trailing slash
+  methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
