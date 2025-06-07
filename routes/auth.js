@@ -30,7 +30,7 @@ router.post("/signup", async (req, res) => {
     if (existing && existing.verified)
       return res.status(400).json({ message: "Email already verified and in use" });
 
-    const code = Math.floor(1000 + Math.random() * 9000); // 4-digit
+    const code = generateCode(); // Use the reusable function
     const hashed = await bcrypt.hash(password, 10);
 
     const user = await User.findOneAndUpdate(
