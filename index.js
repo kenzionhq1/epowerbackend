@@ -9,7 +9,7 @@ const app = express();
 
 
 app.use(cors({
-  origin: "https://e-power-beryl.vercel.app", // ❌ Remove trailing slash
+  origin: "https://e-power-beryl.vercel.app/signup.html", // ❌ Remove trailing slash
   methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
