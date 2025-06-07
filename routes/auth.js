@@ -1,101 +1,158 @@
+// routes/auth.js
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const nodemailer = require("nodemailer");
 const User = require("../models/User");
-const SibApiV3Sdk = require("sib-api-v3-sdk");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// 🔐 Brevo config
-const defaultClient = SibApiV3Sdk.ApiClient.instance;
-defaultClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
-const emailApi = new SibApiV3Sdk.TransactionalEmailsApi();
+// ✅ SMTP Transporter (Brevo)
+const transporter = nodemailer.createTransport({
+  host: "smtp-relay.brevo.com",
+  port: 587,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
-// Generate 4-digit code
-function generateCode() {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-}
-
-// ✅ Sign up with email verification code
+// ✅ Signup: Create unverified user & send code
 router.post("/signup", async (req, res) => {
   const { username, email, password } = req.body;
 
   if (!username || !email || !password)
     return res.status(400).json({ message: "All fields are required" });
 
-  const existingUser = await User.findOne({ email });
-
-  if (existingUser) {
-    if (existingUser.verified) {
-      return res.status(400).json({ message: "Email already registered" });
-    } else {
-      // Allow re-registering unverified users by deleting stale records
-      await User.deleteOne({ email });
-    }
-  }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const code = generateCode();
-  const expiry = Date.now() + 5 * 60 * 1000; // 5 minutes from now
-
-  const user = new User({
-    username,
-    email,
-    password: hashedPassword,
-    verified: false,
-    verificationCode: code,
-    codeExpires: expiry
-  });
-
-  await user.save();
-
-  // Send code via Brevo
   try {
-    await emailApi.sendTransacEmail({
-      sender: { name: "e-Power", email: process.env.SENDER_EMAIL },
-      to: [{ email }],
-      subject: "e-Power Verification Code",
-      htmlContent: `
-        <h3>Hello ${username},</h3>
+    const existing = await User.findOne({ email });
+    if (existing && existing.verified)
+      return res.status(400).json({ message: "Email already verified and in use" });
+
+    const code = Math.floor(1000 + Math.random() * 9000); // 4-digit
+    const hashed = await bcrypt.hash(password, 10);
+
+    const user = await User.findOneAndUpdate(
+      { email },
+      {
+        username,
+        password: hashed,
+        verificationCode: code,
+        verificationCodeExpires: Date.now() + 5 * 60 * 1000, // 5 minutes
+        verified: false
+      },
+      { upsert: true, new: true }
+    );
+
+    // Send Email
+    await transporter.sendMail({
+      from: `"e-Power" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "Verify your e-Power account",
+      html: `
+        <h3>Hi ${username},</h3>
         <p>Your verification code is:</p>
-        <h2>${code}</h2>
-        <p>This code will expire in 5 minutes.</p>
+        <h2 style="color:#2563eb;">${code}</h2>
+        <p>This code expires in 5 minutes.</p>
       `
     });
 
-    res.status(201).json({ message: "Signup successful. Check your email for the verification code." });
+    res.status(201).json({ message: "Verification code sent to your email" });
   } catch (err) {
-    console.error("Email send error:", err.message);
-    res.status(500).json({ message: "Signup failed. Could not send verification email." });
+    console.error("Signup error:", err.message);
+    res.status(500).json({ message: "Signup failed" });
   }
 });
 
-// ✅ Verify email using 4-digit code
-router.post("/verify", async (req, res) => {
+// ✅ Verify code
+router.post("/verify-code", async (req, res) => {
   const { email, code } = req.body;
 
   if (!email || !code)
-    return res.status(400).json({ message: "Email and code required" });
+    return res.status(400).json({ message: "Email and code are required" });
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user)
+      return res.status(404).json({ message: "User not found" });
+
+    if (user.verified)
+      return res.status(200).json({ message: "User already verified" });
+
+    if (
+      user.verificationCode !== code ||
+      Date.now() > user.verificationCodeExpires
+    ) {
+      return res.status(400).json({ message: "Invalid or expired code" });
+    }
+
+    user.verified = true;
+    user.verificationCode = undefined;
+    user.verificationCodeExpires = undefined;
+    await user.save();
+
+    res.json({ message: "Account verified successfully" });
+  } catch (err) {
+    console.error("Verification error:", err.message);
+    res.status(500).json({ message: "Verification failed" });
+  }
+});
+
+router.post("/resend-code", async (req, res) => {
+  const { email } = req.body;
 
   const user = await User.findOne({ email });
+  if (!user || user.verified) return res.status(400).json({ message: "User not found or already verified" });
 
-  if (!user) return res.status(404).json({ message: "User not found" });
-  if (user.verified) return res.status(400).json({ message: "Already verified" });
-
-  if (user.verificationCode !== code)
-    return res.status(400).json({ message: "Invalid verification code" });
-
-  if (Date.now() > user.codeExpires)
-    return res.status(400).json({ message: "Verification code expired" });
-
-  user.verified = true;
-  user.verificationCode = undefined;
-  user.codeExpires = undefined;
+  const code = generateCode();
+  user.verificationCode = code;
+  user.codeExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
   await user.save();
 
-  res.status(200).json({ message: "✅ Email verified successfully!" });
+  await sendBrevoVerification(email, user.username, code);
+  res.status(200).json({ message: "Verification code resent" });
 });
+
+
+
+// Signin
+// SIGNIN
+router.post("/signin", async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    if (!email || !password)
+      return res.status(400).json({ message: "Email and password are required" });
+
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.status(400).json({ message: "Invalid email or password" });
+
+    if (!user.verified)
+      return res.status(401).json({ message: "Please verify your email first" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch)
+      return res.status(400).json({ message: "Invalid email or password" });
+
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+
+    res.status(200).json({
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username
+      }
+    });
+  } catch (err) {
+    console.error("Signin error:", err.message);
+    res.status(500).json({ message: "Server error. Please try again." });
+  }
+});
+
+
 
 module.exports = router;
