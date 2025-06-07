@@ -7,14 +7,15 @@ const app = express();
 
 // CORS FIX
 app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST"],
+  origin: "https://e-power-beryl.vercel.app/",
+  methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 // Middleware
-app.use(express.json());
 
+app.use(cors());
+app.use(express.json());
 // Routes
 const authRoutes = require("./routes/auth");
 const usageRoutes = require("./routes/usage");
