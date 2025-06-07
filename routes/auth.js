@@ -8,6 +8,11 @@ const User = require("../models/User");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// ✅ Generate 4-digit code
+function generateCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
 // ✅ SMTP Transporter (Brevo)
 const transporter = nodemailer.createTransport({
   host: "smtp-relay.brevo.com",
@@ -30,7 +35,7 @@ router.post("/signup", async (req, res) => {
     if (existing && existing.verified)
       return res.status(400).json({ message: "Email already verified and in use" });
 
-    const code = generateCode(); // Use the reusable function
+    const code = generateCode();
     const hashed = await bcrypt.hash(password, 10);
 
     const user = await User.findOneAndUpdate(
@@ -45,7 +50,6 @@ router.post("/signup", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // Send Email
     await transporter.sendMail({
       from: `"e-Power" <${process.env.EMAIL_USER}>`,
       to: email,
@@ -65,7 +69,7 @@ router.post("/signup", async (req, res) => {
   }
 });
 
-// ✅ Verify code
+// ✅ Verify Code
 router.post("/verify-code", async (req, res) => {
   const { email, code } = req.body;
 
@@ -100,25 +104,40 @@ router.post("/verify-code", async (req, res) => {
   }
 });
 
+// ✅ Resend Code
 router.post("/resend-code", async (req, res) => {
   const { email } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user || user.verified) return res.status(400).json({ message: "User not found or already verified" });
+  try {
+    const user = await User.findOne({ email });
+    if (!user || user.verified)
+      return res.status(400).json({ message: "User not found or already verified" });
 
-  const code = generateCode();
-  user.verificationCode = code;
-  user.codeExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
-  await user.save();
+    const code = generateCode();
+    user.verificationCode = code;
+    user.verificationCodeExpires = Date.now() + 5 * 60 * 1000;
+    await user.save();
 
-  await sendBrevoVerification(email, user.username, code);
-  res.status(200).json({ message: "Verification code resent" });
+    await transporter.sendMail({
+      from: `"e-Power" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "New Verification Code",
+      html: `
+        <h3>Hi ${user.username},</h3>
+        <p>Your new verification code is:</p>
+        <h2 style="color:#2563eb;">${code}</h2>
+        <p>This code expires in 5 minutes.</p>
+      `
+    });
+
+    res.status(200).json({ message: "New code sent to your email." });
+  } catch (err) {
+    console.error("Resend code error:", err.message);
+    res.status(500).json({ message: "Could not resend code" });
+  }
 });
 
-
-
-// Signin
-// SIGNIN
+// ✅ Signin
 router.post("/signin", async (req, res) => {
   const { email, password } = req.body;
 
@@ -152,7 +171,5 @@ router.post("/signin", async (req, res) => {
     res.status(500).json({ message: "Server error. Please try again." });
   }
 });
-
-
 
 module.exports = router;
