@@ -7,38 +7,32 @@ const User = require("../models/User");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// ✅ Generate 4-digit code
+// Generate 4-digit code
 function generateCode() {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
-// ✅ SMTP Transporter (Brevo)
+// Brevo SMTP setup
 const transporter = nodemailer.createTransport({
   host: "smtp-relay.brevo.com",
   port: 587,
+  secure: false,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
+    pass: process.env.EMAIL_PASS
+  }
 });
 
-// ✅ Reusable Email Sending Function
-const sendEmail = async (to, subject, html) => {
-  try {
-    await transporter.sendMail({
-      from: `"e-Power" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      html,
-    });
-    console.log(`✅ Email sent to ${to}`);
-  } catch (err) {
-    console.error(`❌ Email send error to ${to}:`, err.message);
-    throw new Error("Failed to send email");
+// Confirm SMTP is ready
+transporter.verify((err, success) => {
+  if (err) {
+    console.error("❌ Brevo SMTP Connection Failed:", err.message);
+  } else {
+    console.log("✅ Brevo SMTP is ready to send emails");
   }
-};
+});
 
-// ✅ Signup: Create unverified user & send code
+// ✅ Signup
 router.post("/signup", async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -59,19 +53,28 @@ router.post("/signup", async (req, res) => {
         username,
         password: hashed,
         verificationCode: code,
-        verificationCodeExpires: Date.now() + 5 * 60 * 1000, // 5 minutes
-        verified: false,
+        verificationCodeExpires: Date.now() + 5 * 60 * 1000,
+        verified: false
       },
       { upsert: true, new: true }
     );
 
-    const emailContent = `
-      <h3>Hi ${username},</h3>
-      <p>Your verification code is:</p>
-      <h2 style="color:#2563eb;">${code}</h2>
-      <p>This code expires in 5 minutes.</p>
-    `;
-    await sendEmail(email, "Verify your e-Power account", emailContent);
+    try {
+      await transporter.sendMail({
+        from: `"e-Power" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Verify your e-Power account",
+        html: `
+          <h3>Hi ${username},</h3>
+          <p>Your verification code is:</p>
+          <h2 style="color:#2563eb;">${code}</h2>
+          <p>This code expires in 5 minutes.</p>
+        `
+      });
+      console.log("📤 Verification email sent to:", email);
+    } catch (err) {
+      console.error("❌ Email send failed:", err.message);
+    }
 
     res.status(201).json({ message: "Verification code sent to your email" });
   } catch (err) {
@@ -119,9 +122,6 @@ router.post("/verify-code", async (req, res) => {
 router.post("/resend-code", async (req, res) => {
   const { email } = req.body;
 
-  if (!email)
-    return res.status(400).json({ message: "Email is required" });
-
   try {
     const user = await User.findOne({ email });
     if (!user || user.verified)
@@ -132,13 +132,22 @@ router.post("/resend-code", async (req, res) => {
     user.verificationCodeExpires = Date.now() + 5 * 60 * 1000;
     await user.save();
 
-    const emailContent = `
-      <h3>Hi ${user.username},</h3>
-      <p>Your new verification code is:</p>
-      <h2 style="color:#2563eb;">${code}</h2>
-      <p>This code expires in 5 minutes.</p>
-    `;
-    await sendEmail(email, "New Verification Code", emailContent);
+    try {
+      await transporter.sendMail({
+        from: `"e-Power" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "New Verification Code",
+        html: `
+          <h3>Hi ${user.username},</h3>
+          <p>Your new verification code is:</p>
+          <h2 style="color:#2563eb;">${code}</h2>
+          <p>This code expires in 5 minutes.</p>
+        `
+      });
+      console.log("📤 Resent code to:", email);
+    } catch (err) {
+      console.error("❌ Resend email failed:", err.message);
+    }
 
     res.status(200).json({ message: "New code sent to your email." });
   } catch (err) {
@@ -151,10 +160,10 @@ router.post("/resend-code", async (req, res) => {
 router.post("/signin", async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password)
-    return res.status(400).json({ message: "Email and password are required" });
-
   try {
+    if (!email || !password)
+      return res.status(400).json({ message: "Email and password are required" });
+
     const user = await User.findOne({ email });
     if (!user)
       return res.status(400).json({ message: "Invalid email or password" });
@@ -173,8 +182,8 @@ router.post("/signin", async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
-        username: user.username,
-      },
+        username: user.username
+      }
     });
   } catch (err) {
     console.error("Signin error:", err.message);
