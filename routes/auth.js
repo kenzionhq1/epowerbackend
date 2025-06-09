@@ -7,32 +7,32 @@ const User = require("../models/User");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Generate 4-digit code
-function generateCode() {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-}
-
-// Brevo SMTP setup
+// 🔐 Gmail SMTP transporter (secure and clean)
 const transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
+  host: "smtp.gmail.com",
   port: 587,
-  secure: false,
+  secure: false, // use TLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   }
 });
 
-// Confirm SMTP is ready
+// ✅ Test transporter on startup
 transporter.verify((err, success) => {
   if (err) {
-    console.error("❌ Brevo SMTP Connection Failed:", err.message);
+    console.error("❌ Gmail SMTP Error:", err.message);
   } else {
-    console.log("✅ Brevo SMTP is ready to send emails");
+    console.log("✅ Gmail SMTP is ready to send emails");
   }
 });
 
-// ✅ Signup
+// 📦 4-digit code generator
+function generateCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+// 🔐 Signup and send verification email
 router.post("/signup", async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -41,8 +41,9 @@ router.post("/signup", async (req, res) => {
 
   try {
     const existing = await User.findOne({ email });
+
     if (existing && existing.verified)
-      return res.status(400).json({ message: "Email already verified and in use" });
+      return res.status(400).json({ message: "Email already in use and verified" });
 
     const code = generateCode();
     const hashed = await bcrypt.hash(password, 10);
@@ -59,43 +60,24 @@ router.post("/signup", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    try {
-      await transporter.sendMail({
-        from: `"E-POWER" <${process.env.EMAIL_USER}>`, // ✅ this must match EMAIL_USER
-        to: email,
-        subject: "Verify your e-Power account",
-        html: `
-        <div style="font-family: 'Poppins', sans-serif; max-width: 480px; margin: auto; background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <img src="https://e-power-beryl.vercel.app/logo.png" alt="e-Power" style="height: 60px;" />
-          </div>
-          <div style="background: #ffffff; padding: 20px; border-radius: 6px;">
-            <h2 style="color: #2563eb; text-align: center;">Verify Your Email</h2>
-            <p style="font-size: 15px; color: #111827; text-align: center;">Hi <strong>${username}</strong>,</p>
-            <p style="font-size: 14px; color: #4b5563; text-align: center;">
-              Thank you for signing up for <strong>e-Power</strong>. Please use the code below to verify your email address.
-            </p>
-            <div style="margin: 20px auto; text-align: center;">
-              <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">
-                ${code}
-              </div>
-              <p style="font-size: 13px; color: #6b7280;">This code will expire in 5 minutes.</p>
-            </div>
-            <p style="font-size: 13px; color: #9ca3af; text-align: center;">If you didn’t request this, please ignore this email.</p>
-          </div>
-          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin-top: 20px;">&copy; ${new Date().getFullYear()} e-Power. All rights reserved.</p>
+    // ✉️ Compose verification email (text + html)
+    await transporter.sendMail({
+      from: `"e-Power" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "🔐 Verify Your e-Power Account",
+      text: `Hi ${username},\n\nYour verification code is: ${code}\n\nThis code expires in 5 minutes.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;font-size:16px;padding:20px;background-color:#f9f9f9;border-radius:8px">
+          <h2 style="color:#2563eb;">Welcome to e-Power, ${username}!</h2>
+          <p>Use the verification code below to activate your account:</p>
+          <div style="font-size:24px;font-weight:bold;color:#2563eb;margin:20px 0;">${code}</div>
+          <p>This code is valid for <strong>5 minutes</strong>.</p>
+          <p style="margin-top:30px;color:#555;">If you didn't sign up, you can ignore this email.</p>
         </div>
       `
-      
-      
-      
-       
-      });
-      console.log("📤 Verification email sent to:", email);
-    } catch (err) {
-      console.error("❌ Email send failed:", err.message);
-    }
+    });
 
+    console.log(`📤 Verification email sent to: ${email}`);
     res.status(201).json({ message: "Verification code sent to your email" });
   } catch (err) {
     console.error("Signup error:", err.message);
@@ -103,7 +85,7 @@ router.post("/signup", async (req, res) => {
   }
 });
 
-// ✅ Verify Code
+// 📬 Verify code
 router.post("/verify-code", async (req, res) => {
   const { email, code } = req.body;
 
@@ -112,12 +94,8 @@ router.post("/verify-code", async (req, res) => {
 
   try {
     const user = await User.findOne({ email });
-
-    if (!user)
-      return res.status(404).json({ message: "User not found" });
-
-    if (user.verified)
-      return res.status(200).json({ message: "User already verified" });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (user.verified) return res.status(200).json({ message: "Already verified" });
 
     if (
       user.verificationCode !== code ||
@@ -131,14 +109,13 @@ router.post("/verify-code", async (req, res) => {
     user.verificationCodeExpires = undefined;
     await user.save();
 
-    res.json({ message: "Account verified successfully" });
+    res.json({ message: "✅ Account verified successfully" });
   } catch (err) {
-    console.error("Verification error:", err.message);
     res.status(500).json({ message: "Verification failed" });
   }
 });
 
-// ✅ Resend Code
+// 🔄 Resend code
 router.post("/resend-code", async (req, res) => {
   const { email } = req.body;
 
@@ -152,65 +129,38 @@ router.post("/resend-code", async (req, res) => {
     user.verificationCodeExpires = Date.now() + 5 * 60 * 1000;
     await user.save();
 
-    try {
-      await transporter.sendMail({
-        from: `"E-POWER" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Verify your e-Power account",
-        html: `
-          <div style="font-family: 'Poppins', sans-serif; max-width: 480px; margin: auto; background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
-            <div style="text-align: center; margin-bottom: 20px;">
-              <img src="https://e-power-beryl.vercel.app/logo.png" alt="e-Power" style="height: 60px;" />
-            </div>
-            <div style="background: #ffffff; padding: 20px; border-radius: 6px;">
-              <h2 style="color: #2563eb; text-align: center;">Verify Your Email</h2>
-              <p style="font-size: 15px; color: #111827; text-align: center;">Hi <strong>${username}</strong>,</p>
-              <p style="font-size: 14px; color: #4b5563; text-align: center;">
-                Thank you for signing up for <strong>e-Power</strong>. Please use the code below to verify your email address.
-              </p>
-              <div style="margin: 20px auto; text-align: center;">
-                <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">
-                  ${code}
-                </div>
-                <p style="font-size: 13px; color: #6b7280;">This code will expire in 5 minutes.</p>
-              </div>
-              <p style="font-size: 13px; color: #9ca3af; text-align: center;">If you didn’t request this, please ignore this email.</p>
-            </div>
-            <p style="font-size: 12px; color: #9ca3af; text-align: center; margin-top: 20px;">&copy; ${new Date().getFullYear()} e-Power. All rights reserved.</p>
-          </div>
-        `
-      });
-      
-      console.log("📤 Resent code to:", email);
-    } catch (err) {
-      console.error("❌ Resend email failed:", err.message);
-    }
+    await transporter.sendMail({
+      from: `"e-Power" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "🔁 Your New e-Power Verification Code",
+      text: `Hi ${user.username},\n\nYour new verification code is: ${code}\n\nValid for 5 minutes.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;font-size:16px;padding:20px;background-color:#f9f9f9;border-radius:8px">
+          <h2 style="color:#2563eb;">New Code Requested</h2>
+          <p>Your updated verification code is:</p>
+          <div style="font-size:24px;font-weight:bold;color:#2563eb;margin:20px 0;">${code}</div>
+          <p>Code expires in <strong>5 minutes</strong>.</p>
+        </div>
+      `
+    });
 
-    res.status(200).json({ message: "New code sent to your email." });
+    res.json({ message: "New code sent to your email." });
   } catch (err) {
-    console.error("Resend code error:", err.message);
-    res.status(500).json({ message: "Could not resend code" });
+    res.status(500).json({ message: "Resend failed" });
   }
 });
 
-// ✅ Signin
+// 🔐 Signin
 router.post("/signin", async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    if (!email || !password)
-      return res.status(400).json({ message: "Email and password are required" });
-
     const user = await User.findOne({ email });
-    if (!user)
-      return res.status(400).json({ message: "Invalid email or password" });
-
-    if (!user.verified)
-      return res.status(401).json({ message: "Please verify your email first" });
+    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    if (!user.verified) return res.status(403).json({ message: "Please verify your email" });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
-      return res.status(400).json({ message: "Invalid email or password" });
+    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
 
@@ -223,8 +173,7 @@ router.post("/signin", async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Signin error:", err.message);
-    res.status(500).json({ message: "Server error. Please try again." });
+    res.status(500).json({ message: "Signin failed" });
   }
 });
 
