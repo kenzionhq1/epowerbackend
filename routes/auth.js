@@ -154,7 +154,7 @@ router.post("/resend-code", async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: `"e-Power" <${process.env.EMAIL_USER}>`,
+        from: `"E-POWER" <epower.vir@gmail.com>`,
         to: email,
         subject: "Verify your e-Power account",
         html: `
