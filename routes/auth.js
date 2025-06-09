@@ -61,7 +61,7 @@ router.post("/signup", async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: `"E-POWER" <epower.vir@gmail.com>`, // ✅ this must match EMAIL_USER
+        from: `"E-POWER" <${process.env.EMAIL_USER}>`, // ✅ this must match EMAIL_USER
         to: email,
         subject: "Verify your e-Power account",
         html: `
@@ -154,7 +154,7 @@ router.post("/resend-code", async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: `"E-POWER" <epower.vir@gmail.com>`,
+        from: `"E-POWER" <${process.env.EMAIL_USER}>`,
         to: email,
         subject: "Verify your e-Power account",
         html: `
