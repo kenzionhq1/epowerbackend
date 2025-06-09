@@ -61,15 +61,35 @@ router.post("/signup", async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: `"e-Power" <epower.vir@gmail.com>`,
+        from: `"E-POWER" <epower.vir@gmail.com>`, // ✅ this must match EMAIL_USER
         to: email,
         subject: "Verify your e-Power account",
         html: `
-          <h3>Hi ${username},</h3>
-          <p>Your verification code is:</p>
-          <h2 style="color:#2563eb;">${code}</h2>
-          <p>This code expires in 5 minutes.</p>
-        `
+        <div style="font-family: 'Poppins', sans-serif; max-width: 480px; margin: auto; background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <img src="https://e-power-beryl.vercel.app/logo.png" alt="e-Power" style="height: 60px;" />
+          </div>
+          <div style="background: #ffffff; padding: 20px; border-radius: 6px;">
+            <h2 style="color: #2563eb; text-align: center;">Verify Your Email</h2>
+            <p style="font-size: 15px; color: #111827; text-align: center;">Hi <strong>${username}</strong>,</p>
+            <p style="font-size: 14px; color: #4b5563; text-align: center;">
+              Thank you for signing up for <strong>e-Power</strong>. Please use the code below to verify your email address.
+            </p>
+            <div style="margin: 20px auto; text-align: center;">
+              <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">
+                ${code}
+              </div>
+              <p style="font-size: 13px; color: #6b7280;">This code will expire in 5 minutes.</p>
+            </div>
+            <p style="font-size: 13px; color: #9ca3af; text-align: center;">If you didn’t request this, please ignore this email.</p>
+          </div>
+          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin-top: 20px;">&copy; ${new Date().getFullYear()} e-Power. All rights reserved.</p>
+        </div>
+      `
+      
+      
+      
+       
       });
       console.log("📤 Verification email sent to:", email);
     } catch (err) {
@@ -136,14 +156,31 @@ router.post("/resend-code", async (req, res) => {
       await transporter.sendMail({
         from: `"e-Power" <${process.env.EMAIL_USER}>`,
         to: email,
-        subject: "New Verification Code",
+        subject: "Verify your e-Power account",
         html: `
-          <h3>Hi ${user.username},</h3>
-          <p>Your new verification code is:</p>
-          <h2 style="color:#2563eb;">${code}</h2>
-          <p>This code expires in 5 minutes.</p>
+          <div style="font-family: 'Poppins', sans-serif; max-width: 480px; margin: auto; background: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <img src="https://e-power-beryl.vercel.app/logo.png" alt="e-Power" style="height: 60px;" />
+            </div>
+            <div style="background: #ffffff; padding: 20px; border-radius: 6px;">
+              <h2 style="color: #2563eb; text-align: center;">Verify Your Email</h2>
+              <p style="font-size: 15px; color: #111827; text-align: center;">Hi <strong>${username}</strong>,</p>
+              <p style="font-size: 14px; color: #4b5563; text-align: center;">
+                Thank you for signing up for <strong>e-Power</strong>. Please use the code below to verify your email address.
+              </p>
+              <div style="margin: 20px auto; text-align: center;">
+                <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">
+                  ${code}
+                </div>
+                <p style="font-size: 13px; color: #6b7280;">This code will expire in 5 minutes.</p>
+              </div>
+              <p style="font-size: 13px; color: #9ca3af; text-align: center;">If you didn’t request this, please ignore this email.</p>
+            </div>
+            <p style="font-size: 12px; color: #9ca3af; text-align: center; margin-top: 20px;">&copy; ${new Date().getFullYear()} e-Power. All rights reserved.</p>
+          </div>
         `
       });
+      
       console.log("📤 Resent code to:", email);
     } catch (err) {
       console.error("❌ Resend email failed:", err.message);
