@@ -26,11 +26,19 @@ const userSchema = new mongoose.Schema({
   },
 
   verificationCode: {
-    type: String // 4-digit code sent to email
+    type: String // 4-digit code sent to email for verification
   },
 
-  codeExpires: {
-    type: Date // timestamp when the code expires
+  verificationCodeExpires: {
+    type: Date
+  },
+
+  resetCode: {
+    type: String // for password reset
+  },
+
+  resetCodeExpires: {
+    type: Date
   },
 
   balance: {
