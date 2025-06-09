@@ -177,4 +177,86 @@ router.post("/signin", async (req, res) => {
   }
 });
 
+router.post("/request-reset", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "Email is required" });
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.verified) return res.status(403).json({ message: "Email not verified yet" });
+
+    const code = generateCode();
+    user.resetCode = code;
+    user.resetCodeExpires = Date.now() + 10 * 60 * 1000; // 10 min
+    await user.save();
+
+    await transporter.sendMail({
+      from: `"e-Power Support" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "🔐 Reset Your Password",
+      html: `
+        <div style="font-family:sans-serif;padding:20px">
+          <h2 style="color:#2563eb;">Reset Password</h2>
+          <p>Use this code to reset your password:</p>
+          <h1 style="color:#2563eb;">${code}</h1>
+          <p>This code expires in 10 minutes.</p>
+        </div>
+      `
+    });
+
+    res.json({ message: "Reset code sent" });
+  } catch (err) {
+    res.status(500).json({ message: "Could not send reset code" });
+  }
+});
+
+router.post("/verify-reset-code", async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ message: "Email and code are required" });
+
+  try {
+    const user = await User.findOne({ email });
+    if (
+      !user ||
+      user.resetCode !== code ||
+      Date.now() > user.resetCodeExpires
+    ) {
+      return res.status(400).json({ message: "Invalid or expired reset code" });
+    }
+
+    res.json({ message: "Reset code valid" }); // now frontend can show "Reset Password" form
+  } catch (err) {
+    res.status(500).json({ message: "Code verification failed" });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  const { email, code, newPassword } = req.body;
+  if (!email || !code || !newPassword)
+    return res.status(400).json({ message: "All fields are required" });
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (
+      !user ||
+      user.resetCode !== code ||
+      Date.now() > user.resetCodeExpires
+    ) {
+      return res.status(400).json({ message: "Invalid or expired reset code" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetCode = undefined;
+    user.resetCodeExpires = undefined;
+    await user.save();
+
+    res.json({ message: "✅ Password reset successful" });
+  } catch (err) {
+    res.status(500).json({ message: "Password reset failed" });
+  }
+});
+
+
 module.exports = router;
