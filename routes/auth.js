@@ -7,19 +7,18 @@ const User = require("../models/User");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// 🔐 Gmail SMTP transporter (secure and clean)
+// 🔐 Gmail SMTP transporter
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
-  secure: false, // use TLS
+  secure: false, // TLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   }
 });
 
-// ✅ Test transporter on startup
-transporter.verify((err, success) => {
+transporter.verify((err) => {
   if (err) {
     console.error("❌ Gmail SMTP Error:", err.message);
   } else {
@@ -27,12 +26,11 @@ transporter.verify((err, success) => {
   }
 });
 
-// 📦 4-digit code generator
 function generateCode() {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+  return Math.floor(1000 + Math.random() * 9000).toString(); // Ensure it's a string
 }
 
-// 🔐 Signup and send verification email
+// =================== Signup ===================
 router.post("/signup", async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -60,19 +58,16 @@ router.post("/signup", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // ✉️ Compose verification email (text + html)
     await transporter.sendMail({
       from: `"e-Power" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: "🔐 Verify Your e-Power Account",
-      text: `Hi ${username},\n\nYour verification code is: ${code}\n\nThis code expires in 5 minutes.`,
       html: `
-        <div style="font-family:Arial,sans-serif;font-size:16px;padding:20px;background-color:#f9f9f9;border-radius:8px">
-          <h2 style="color:#2563eb;">Welcome to e-Power, ${username}!</h2>
-          <p>Use the verification code below to activate your account:</p>
-          <div style="font-size:24px;font-weight:bold;color:#2563eb;margin:20px 0;">${code}</div>
-          <p>This code is valid for <strong>5 minutes</strong>.</p>
-          <p style="margin-top:30px;color:#555;">If you didn't sign up, you can ignore this email.</p>
+        <div style="font-family:sans-serif;padding:20px">
+          <h2 style="color:#2563eb;">Welcome, ${username}!</h2>
+          <p>Your verification code is:</p>
+          <h1 style="color:#2563eb;">${code}</h1>
+          <p>Expires in 5 minutes.</p>
         </div>
       `
     });
@@ -80,12 +75,11 @@ router.post("/signup", async (req, res) => {
     console.log(`📤 Verification email sent to: ${email}`);
     res.status(201).json({ message: "Verification code sent to your email" });
   } catch (err) {
-    console.error("Signup error:", err.message);
     res.status(500).json({ message: "Signup failed" });
   }
 });
 
-// 📬 Verify code
+// =================== Verify Code ===================
 router.post("/verify-code", async (req, res) => {
   const { email, code } = req.body;
 
@@ -94,11 +88,12 @@ router.post("/verify-code", async (req, res) => {
 
   try {
     const user = await User.findOne({ email });
+
     if (!user) return res.status(404).json({ message: "User not found" });
     if (user.verified) return res.status(200).json({ message: "Already verified" });
 
     if (
-      user.verificationCode !== code ||
+      user.verificationCode != code || // loose check for string/number
       Date.now() > user.verificationCodeExpires
     ) {
       return res.status(400).json({ message: "Invalid or expired code" });
@@ -115,7 +110,7 @@ router.post("/verify-code", async (req, res) => {
   }
 });
 
-// 🔄 Resend code
+// =================== Resend Code ===================
 router.post("/resend-code", async (req, res) => {
   const { email } = req.body;
 
@@ -133,13 +128,12 @@ router.post("/resend-code", async (req, res) => {
       from: `"e-Power" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: "🔁 Your New e-Power Verification Code",
-      text: `Hi ${user.username},\n\nYour new verification code is: ${code}\n\nValid for 5 minutes.`,
       html: `
-        <div style="font-family:Arial,sans-serif;font-size:16px;padding:20px;background-color:#f9f9f9;border-radius:8px">
-          <h2 style="color:#2563eb;">New Code Requested</h2>
-          <p>Your updated verification code is:</p>
-          <div style="font-size:24px;font-weight:bold;color:#2563eb;margin:20px 0;">${code}</div>
-          <p>Code expires in <strong>5 minutes</strong>.</p>
+        <div style="font-family:sans-serif;padding:20px">
+          <h2 style="color:#2563eb;">New Verification Code</h2>
+          <p>Code:</p>
+          <h1 style="color:#2563eb;">${code}</h1>
+          <p>Valid for 5 minutes.</p>
         </div>
       `
     });
@@ -150,7 +144,7 @@ router.post("/resend-code", async (req, res) => {
   }
 });
 
-// 🔐 Signin
+// =================== Signin ===================
 router.post("/signin", async (req, res) => {
   const { email, password } = req.body;
 
@@ -177,6 +171,7 @@ router.post("/signin", async (req, res) => {
   }
 });
 
+// =================== Request Password Reset ===================
 router.post("/request-reset", async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: "Email is required" });
@@ -200,7 +195,7 @@ router.post("/request-reset", async (req, res) => {
           <h2 style="color:#2563eb;">Reset Password</h2>
           <p>Use this code to reset your password:</p>
           <h1 style="color:#2563eb;">${code}</h1>
-          <p>This code expires in 10 minutes.</p>
+          <p>Expires in 10 minutes.</p>
         </div>
       `
     });
@@ -211,28 +206,36 @@ router.post("/request-reset", async (req, res) => {
   }
 });
 
+// =================== Verify Reset Code ===================
 router.post("/verify-reset-code", async (req, res) => {
   const { email, code } = req.body;
-  if (!email || !code) return res.status(400).json({ message: "Email and code are required" });
+
+  if (!email || !code)
+    return res.status(400).json({ message: "Email and code are required" });
 
   try {
     const user = await User.findOne({ email });
+
+    console.log("Stored:", user.resetCode, "Incoming:", code);
+
     if (
       !user ||
-      user.resetCode !== code ||
+      user.resetCode != code || // loose comparison
       Date.now() > user.resetCodeExpires
     ) {
       return res.status(400).json({ message: "Invalid or expired reset code" });
     }
 
-    res.json({ message: "Reset code valid" }); // now frontend can show "Reset Password" form
+    res.json({ message: "Reset code valid" });
   } catch (err) {
     res.status(500).json({ message: "Code verification failed" });
   }
 });
 
+// =================== Reset Password ===================
 router.post("/reset-password", async (req, res) => {
   const { email, code, newPassword } = req.body;
+
   if (!email || !code || !newPassword)
     return res.status(400).json({ message: "All fields are required" });
 
@@ -241,7 +244,7 @@ router.post("/reset-password", async (req, res) => {
 
     if (
       !user ||
-      user.resetCode !== code ||
+      user.resetCode != code || // loose comparison
       Date.now() > user.resetCodeExpires
     ) {
       return res.status(400).json({ message: "Invalid or expired reset code" });
@@ -257,6 +260,5 @@ router.post("/reset-password", async (req, res) => {
     res.status(500).json({ message: "Password reset failed" });
   }
 });
-
 
 module.exports = router;
